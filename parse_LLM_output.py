@@ -47,23 +47,51 @@ def split_with_overlap(tokenized_text, max_tokens, overlap):
     return fragments
 
 def process_json_answer(text, max_tokens=384, overlap=50):
-    text = text.replace('```json', '').replace('```', '')
-    js = json.loads(text.strip())
-    all_tokens = tokenize_text(js['text'])
-    ents = [(k["entity"], k["types"]) for k in js['entities']]
-    all_types = extract_unique_types_from_json(js)
+    try:
+        # Находим начало и конец JSON-блока
+        start = text.find('```json') + 7  # добавляем 7 для пропуска '```json'
+        end = text.find('```', start)
+        
+        # Если нашли разметку JSON
+        if start > 6 and end != -1:  # start > 6 означает, что '```json' был найден
+            json_text = text[start:end]
+        else:
+            json_text = text
+            
+        js = json.loads(json_text.strip())
+        all_tokens = tokenize_text(js['text'])
+        ents = [(k["entity"], k["types"]) for k in js['entities']]
+        all_types = extract_unique_types_from_json(js)
 
-    answer = []
-    for tokens in split_with_overlap(all_tokens, max_tokens, overlap):    
-        # print(tokens)
-        spans = []
-        for entity in ents:
-            entity_tokens = tokenize_text(str(entity[0]))
+        answer = []
+        for tokens in split_with_overlap(all_tokens, max_tokens, overlap):    
+            spans = []
+            # Создаем нижнерегистровую версию текста один раз
+            text_lower = " ".join(tokens).lower()
+            
+            for entity, types in ents:
+                entity_tokens = tokenize_text(str(entity))
+                entity_text = " ".join(entity_tokens).lower()
+                
+                # Используем более эффективный поиск
+                start_pos = 0
+                while True:
+                    pos = text_lower.find(entity_text, start_pos)
+                    if pos == -1:
+                        break
+                        
+                    # Подсчитываем токены до найденной позиции
+                    token_start = len(text_lower[:pos].split())
+                    token_end = token_start + len(entity_tokens) - 1
+                    
+                    for type_name in types:
+                        spans.append((token_start, token_end, type_name.replace('_', ' ')))
+                        
+                    start_pos = pos + 1
+                    
+            answer.append({"tokenized_text": tokens, "ner": spans, "label": list(all_types)})
 
-            # Find the start and end indices of each entity in the tokenized text
-            for i in range(len(tokens) - len(entity_tokens) + 1):
-                if " ".join(tokens[i:i + len(entity_tokens)]).lower() == " ".join(entity_tokens).lower():
-                    for el in entity[1]:
-                        spans.append((i, i + len(entity_tokens) - 1, el.replace('_', ' ')))
-        answer.append({"tokenized_text": tokens, "ner": spans, "label":list(all_types)})
+    except Exception as e:
+        print(e)
+        return None
     return answer
