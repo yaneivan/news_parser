@@ -1,4 +1,34 @@
 from dotenv import load_dotenv
+import logging
+from functools import wraps
+import time
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# Create a console handler and set the level to DEBUG
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+
+# Create a formatter and set it for the handler
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+
+# Add the handler to the logger
+logger.addHandler(ch)
+
+# Декоратор для замера времени выполнения функции
+def log_execution_time(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()  # Засекаем время начала выполнения
+        result = func(*args, **kwargs)  # Выполняем функцию
+        end_time = time.time()  # Засекаем время окончания выполнения
+        execution_time = end_time - start_time  # Вычисляем время выполнения
+        logger.debug(f"Function '{func.__name__}' executed in {execution_time:.4f} seconds")  # Логируем время выполнения
+        return result
+    return wrapper
+
 
 load_dotenv()
 
@@ -116,7 +146,7 @@ def update_token_count(file_path, tokens_used):
     with open(file_path, 'w') as file:
         file.write(str(new_token_count))
 
-
+@log_execution_time
 def summarize_with_gemeni(text):
     import google.generativeai as genai
     import os
@@ -151,7 +181,7 @@ def summarize_with_gemeni(text):
 
     return (response.text)
 
-
+@log_execution_time
 def annotate_with_gemeni(text):
     import google.generativeai as genai
     import os
@@ -205,6 +235,7 @@ def annotate_with_gemeni(text):
 
     return (response.text)
 
+@log_execution_time
 def rate_with_gemeni(text):
     import typing_extensions as typing
     import google.generativeai as genai

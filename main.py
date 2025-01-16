@@ -26,7 +26,7 @@ column_names = ['full text', 'summary', 'LLM json', 'LLM summary json', 'score_r
 output_file = "gliner.json"
 
 
-logger = logging.getLogger('my_logger')
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 # Create a console handler and set the level to DEBUG
