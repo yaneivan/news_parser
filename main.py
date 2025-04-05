@@ -6,24 +6,40 @@ from dotenv import load_dotenv
 import logging
 import json
 import argparse
+import traceback
 
-from load_data import load_texts
-from annotator import summarize_with_mistral, annotate_with_mistral
-from annotator import summarize_with_gemeni, annotate_with_gemeni, rate_with_gemeni
+from data_sources import get_source
+from providers import get_provider
 from parse_LLM_output import process_json_answer
 
 load_dotenv()
 
+# llm_provider = get_provider("openai")
+llm_provider = get_provider("structured_openai")
+
+
+# input_file = 'input_data/2023.json'
+# input_file = 'input_data/shorter.json'
+input_file = "input_data/4pages.txt"
+
+output_file = "output/gliner.json"
+
+
+# load_data = get_source("telegram")
+# load_data = get_source("folder")
+# load_data = get_source("txt")
+load_data = get_source("splitter")
+
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--export', action='store_true', help="Skip csv creation, just export the existing one.")
-parser.add_argument('--delay', type=int, help="Set the delay time in seconds.", default=6)
+parser.add_argument('--delay', type=int, help="Set the delay time in seconds.", default=0)
 args = parser.parse_args()
 
 delay = args.delay
 
 column_names = ['full text', 'summary', 'LLM json', 'LLM summary json', 'score_reason', 'score', 'model', 'time']
-output_file = "gliner.json"
 
 
 logger = logging.getLogger(__name__)
@@ -55,7 +71,7 @@ def add_texts_to_table(file_path = 'texts.csv'):
     else:
         existing_df = pd.DataFrame(columns=column_names)
 
-    new_texts = (load_texts('data/2023.json'))
+    new_texts = (load_data(input_file))
 
     # Filter out texts that are already in the DataFrame
     new_texts_to_add = [text for text in new_texts if text not in existing_df['full text'].values]
@@ -69,43 +85,41 @@ def add_texts_to_table(file_path = 'texts.csv'):
     # Save the updated DataFrame back to the CSV file
     updated_df.to_csv(file_path, index=False)
 
+    logger.info(f"Length of CSV file is: {len(updated_df)}")
+
 
 def fill_table(file_path='texts.csv'):
     df = pd.read_csv(file_path).astype(str)
 
     for index, row in df.iterrows():
         if (df.at[index, 'score_reason'] == 'nan'):
-            score = rate_with_gemeni(df.at[index, 'full text'])
+            score = llm_provider.rate(df.at[index, 'full text'])
+            score = score.replace("```json", '').replace("```", '')
+            logger.debug(score)
             score = json.loads(score)
-
             df.at[index, 'score_reason'] = score['reasoning_behind_score']
             df.at[index, 'score'] = score['score']
             sleep(delay)
 
         if (df.at[index, 'summary'] == 'nan'):
-            # df.at[index, 'summary'] = summarize_with_mistral(df.at[index, 'full text'])
-            df.at[index, 'summary'] = summarize_with_gemeni(df.at[index, 'full text'])
+            df.at[index, 'summary'] = llm_provider.summarize(df.at[index, 'full text'])
             logger.debug(df.at[index, 'summary'])
             sleep(delay)
         if (df.at[index, 'LLM json'] == 'nan'):
-            # df.at[index, 'LLM json'] = annotate_with_mistral(df.at[index, 'full text'])
-            df.at[index, 'LLM json'] = annotate_with_gemeni(df.at[index, 'full text'])
+            df.at[index, 'LLM json'] = llm_provider.annotate(df.at[index, 'full text'])
             sleep(delay)
         if (df.at[index, 'LLM summary json'] == 'nan'):
-            # df.at[index, 'LLM summary json'] = annotate_with_mistral(df.at[index, 'summary'])
-            df.at[index, 'LLM summary json'] = annotate_with_gemeni(df.at[index, 'summary'])
+            df.at[index, 'LLM summary json'] = llm_provider.annotate(df.at[index, 'summary'])
             sleep(delay)
         
         # add info about model and time
         if (df.at[index, 'model'] == 'nan'):
-            # df.at[index, 'model'] = os.environ["MODEL"]
-            df.at[index, 'model'] = os.environ["GOOGLE_MODEL"]
+            df.at[index, 'model'] = os.environ["MODEL"]
         if (df.at[index, 'time'] == 'nan'): 
             df.at[index, 'time'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            full = False
             df.to_csv('texts.csv', index=False)
-            logger.info(f"Row number {index} processed...")
-        # break
-
+            logger.info(f"Row number {index+1}/{len(df)} processed...")
 
 if not args.export:
     # создает таблицу с текстами, или добавлет те которых нет
@@ -114,8 +128,9 @@ if not args.export:
     while True: 
         try:
             fill_table()
+            break
         except Exception as e:
-            logger.info(f"Got Exception: {e}")
+            logger.error(f"Got Exception: {e}\n{traceback.format_exc()}")
         
 df = pd.read_csv('texts.csv')
 

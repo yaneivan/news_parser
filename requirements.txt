@@ -1,4 +1,6 @@
 colorlog
 pandas
 python-dotenv
-mistralai
+openai
+google-generativeai
+pyqt5
